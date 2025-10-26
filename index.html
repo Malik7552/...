@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Car Race Game with Leaderboard & Restart</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#111; color:#fff; font-family:sans-serif; display:flex; justify-content:center; align-items:flex-start; }
+  h1 { width:100%; text-align:center; margin:20px 0; }
+
+  /* LOGIN */
+  #loginArea { display:flex; flex-direction:column; align-items:center; margin-top:20px; }
+  #loginArea input { margin:5px; padding:10px; border-radius:5px; border:none; width:200px; }
+  #loginArea button { margin:10px; padding:10px 20px; border:none; border-radius:10px; cursor:pointer; background:#ff4747; color:#fff; box-shadow:0 0 10px #ff4747; }
+  #loginArea button:hover { background:#ff2222; }
+
+  /* GAME AREA */
+  #gameContainer { display:none; flex-direction:column; align-items:center; position:relative; margin-right:250px; }
+  #gameArea { position: relative; width: 300px; height: 500px; background: #2b2b2b; overflow: hidden; border:3px solid white; margin-top:20px; }
+  .road-line { position:absolute; left:50%; transform:translateX(-50%); width:10px; height:60px; background:white; top:0; opacity:0.7; }
+  .car { position:absolute; width:50px; height:90px; bottom:20px; left:125px; background:url(m.jpeg) no-repeat center/cover; }
+  .obstacle { position:absolute; width:50px; height:90px; background:url(m.jpeg) no-repeat center/cover; }
+  .controls { display:flex; justify-content:center; margin-top:20px; gap:50px; }
+  #scoreBoard { margin-top:10px; font-size:18px; }
+  .btn { background: #ff4747; color: white; font-size: 25px; padding: 25px 35px; border-radius: 20px; border: none; cursor: pointer; user-select: none; box-shadow: 0 0 15px #ff4747; }
+  .btn:hover { background: #ff2222; }
+  .btn:active { transform: scale(0.95); }
+
+  /* LEADERBOARD */
+  #leaderboard {
+    position:fixed;
+    top:20px;
+    right:20px;
+    width:220px;
+    background: rgba(0,0,0,0.7);
+    padding:10px;
+    border-radius:10px;
+    font-size:14px;
+    text-align:left;
+    max-height:90vh;
+    overflow-y:auto;
+    cursor:pointer;
+  }
+  #leaderboard h3 { text-align:center; margin-bottom:5px; }
+
+  /* RESTART BUTTON */
+  #restartBtn {
+    position:fixed;
+    top:20px;
+    left:20px;
+    padding:10px 20px;
+    border:none;
+    border-radius:10px;
+    background:#4CAF50;
+    color:white;
+    font-size:16px;
+    cursor:pointer;
+    box-shadow:0 0 10px #4CAF50;
+  }
+  #restartBtn:hover { background:#45a049; }
+</style>
+</head>
+<body>
+
+<h1>🏎️ Car Race Game 🛣️</h1>
+
+<div id="loginArea">
+  <input type="text" id="username" placeholder="Username">
+  <input type="password" id="password" placeholder="Password">
+  <div>
+    <button id="loginBtn">Login</button>
+    <button id="signupBtn">Sign Up</button>
+  </div>
+  <div id="loginMsg" style="margin-top:5px;color:#f88;"></div>
+</div>
+
+<div id="gameContainer">
+  <div id="gameArea"><div class="car" id="car"></div></div>
+  <div id="scoreBoard">Score: <span id="score">0</span> | High Score: <span id="highScore">0</span></div>
+  <div class="controls">
+    <button class="btn" id="leftBtn">⬅️ Left</button>
+    <button class="btn" id="rightBtn">➡️ Right</button>
+  </div>
+</div>
+
+<div id="leaderboard">🏆 Leaderboard (Click to Show Top 10)</div>
+<button id="restartBtn">Restart</button>
+
+<script>
+/* ===== LOGIN/SIGNUP ===== */
+const loginArea = document.getElementById("loginArea");
+const gameContainer = document.getElementById("gameContainer");
+const usernameInput = document.getElementById("username");
+const passwordInput = document.getElementById("password");
+const loginBtn = document.getElementById("loginBtn");
+const signupBtn = document.getElementById("signupBtn");
+const loginMsg = document.getElementById("loginMsg");
+const leaderboardDiv = document.getElementById("leaderboard");
+const restartBtn = document.getElementById("restartBtn");
+let currentUser = null;
+
+function loadUsers(){ return JSON.parse(localStorage.getItem("users")||"{}"); }
+function saveUsers(users){ localStorage.setItem("users", JSON.stringify(users)); }
+
+function showTop10(){
+  const users = loadUsers();
+  const sorted = Object.entries(users)
+                       .filter(([u,d])=>d.score>0)
+                       .sort((a,b)=>b[1].score - a[1].score)
+                       .slice(0,10);
+  if(sorted.length===0){ leaderboardDiv.innerHTML="🏆 Leaderboard Empty"; return; }
+  leaderboardDiv.innerHTML="<h3>🏆 Leaderboard (Top 10)</h3>"+
+      sorted.map(([u,d],i)=>`${i+1}. ${u}: ${d.score}`).join("<br>");
+}
+
+loginBtn.addEventListener("click", ()=>{
+  let users = loadUsers();
+  const user = usernameInput.value.trim();
+  const pass = passwordInput.value;
+  if(users[user] && users[user].password===pass){
+    currentUser = user;
+    startGame(users[user].score||0);
+  } else loginMsg.textContent="❌ Invalid login!";
+});
+
+signupBtn.addEventListener("click", ()=>{
+  let users = loadUsers();
+  const user = usernameInput.value.trim();
+  const pass = passwordInput.value;
+  if(!user || !pass){ loginMsg.textContent="❌ Enter username & password"; return; }
+  if(users[user]){ loginMsg.textContent="❌ Username exists"; return; }
+  users[user]={password:pass,score:0};
+  saveUsers(users);
+  currentUser=user;
+  startGame(0);
+});
+
+function startGame(highScore){
+  loginArea.style.display="none";
+  gameContainer.style.display="flex";
+  document.getElementById("highScore").textContent=highScore;
+  scoreDisplay.textContent=0;
+  score=0;
+  gameOver=false;
+  obstacles.forEach(o=>o.remove());
+  obstacles=[];
+  carX=125;
+  car.style.left=carX+"px";
+  requestAnimationFrame(gameLoop);
+}
+
+/* ===== GAME CODE ===== */
+const gameArea = document.getElementById("gameArea");
+const car = document.getElementById("car");
+const scoreDisplay = document.getElementById("score");
+const highScoreDisplay = document.getElementById("highScore");
+const leftBtn = document.getElementById("leftBtn");
+const rightBtn = document.getElementById("rightBtn");
+
+let carX=125, speed=4, score=0, obstacles=[], roadLines=[], gameOver=false;
+let moveLeft=false, moveRight=false;
+
+/* ROAD LINES */
+for(let i=0;i<6;i++){
+  const line=document.createElement("div");
+  line.classList.add("road-line");
+  line.style.top=i*100+"px";
+  gameArea.appendChild(line);
+  roadLines.push(line);
+}
+
+/* OBSTACLES */
+function createObstacle(){
+  const obs=document.createElement("div");
+  obs.classList.add("obstacle");
+  obs.style.left=Math.floor(Math.random()*250)+"px";
+  obs.style.top="-100px";
+  gameArea.appendChild(obs);
+  obstacles.push(obs);
+}
+
+/* MOVE CAR */
+function moveCar(dir){
+  if(dir==="left" && carX>0) carX-=5;
+  if(dir==="right" && carX<250) carX+=5;
+  car.style.left=carX+"px";
+}
+
+/* BUTTON CONTROL */
+leftBtn.addEventListener("mousedown",()=>moveLeft=true);
+leftBtn.addEventListener("mouseup",()=>moveLeft=false);
+leftBtn.addEventListener("touchstart",e=>{e.preventDefault(); moveLeft=true});
+leftBtn.addEventListener("touchend",()=>moveLeft=false);
+rightBtn.addEventListener("mousedown",()=>moveRight=true);
+rightBtn.addEventListener("mouseup",()=>moveRight=false);
+rightBtn.addEventListener("touchstart",e=>{e.preventDefault(); moveRight=true});
+rightBtn.addEventListener("touchend",()=>moveRight=false);
+
+/* RESTART BUTTON */
+restartBtn.addEventListener("click",()=> startGame(loadUsers()[currentUser].score||0));
+
+/* LEADERBOARD CLICK */
+leaderboardDiv.addEventListener("click", showTop10);
+
+/* GAME LOOP */
+function gameLoop(){
+  if(gameOver) return;
+
+  if(moveLeft) moveCar("left");
+  if(moveRight) moveCar("right");
+
+  roadLines.forEach(line=>{
+    let y=line.offsetTop; y+=speed;
+    if(y>500) y=-60;
+    line.style.top=y+"px";
+  });
+
+  obstacles.forEach((obs,i)=>{
+    let obsY=obs.offsetTop; obsY+=speed; obs.style.top=obsY+"px";
+
+    if(obsY>500){ obs.remove(); obstacles.splice(i,1); score+=100; scoreDisplay.textContent=score;
+      if(score%1000===0){ speed+=1; if(speed%2===0) createObstacle(); }
+    }
+
+    const carRect=car.getBoundingClientRect();
+    const obsRect=obs.getBoundingClientRect();
+    if(carRect.top<obsRect.bottom && carRect.bottom>obsRect.top &&
+       carRect.left<obsRect.right && carRect.right>obsRect.left){
+      gameOver=true;
+      alert(`💥 Game Over! Score: ${score}`);
+      let users=loadUsers();
+      if(score>users[currentUser].score) users[currentUser].score=score;
+      saveUsers(users);
+    }
+  });
+
+  if(Math.random()<0.015 && obstacles.length<4) createObstacle();
+  requestAnimationFrame(gameLoop);
+}
+</script>
+</body>
+</html>
